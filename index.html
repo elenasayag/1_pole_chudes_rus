@@ -114,6 +114,12 @@
             transform: translateY(-1px);
         }
 
+        .btn:disabled {
+            background-color: #cbd5e1;
+            cursor: not-allowed;
+            transform: none;
+        }
+
         .players-bar {
             display: flex;
             justify-content: space-around;
@@ -219,7 +225,7 @@
             z-index: 10;
         }
 
-        canvas {
+        canvas#wheel {
             width: 100%;
             height: 100%;
             border-radius: 50%;
@@ -323,7 +329,7 @@
         <input type="text" id="p3-name" value="Ученик 3">
     </div>
 
-    <button class="btn" onclick="startStage()">Начать этап</button>
+    <button class="btn" id="start-btn">Начать этап</button>
 </div>
 
 <!-- ЭКРАН 2: ИГРОВОЙ ЭКРАН -->
@@ -350,7 +356,7 @@
         <canvas id="wheel" width="300" height="300"></canvas>
     </div>
 
-    <button class="btn" id="spin-btn" onclick="spinWheel()" style="margin-bottom: 15px;">Крутить барабан</button>
+    <button class="btn" id="spin-btn" style="margin-bottom: 15px;">Крутить барабан</button>
 
     <div class="question-box" id="question-box">Вопрос появится после вращения барабана...</div>
 
@@ -359,11 +365,11 @@
     <div class="keyboard" id="keyboard"></div>
 </div>
 
-<!-- ЭКРАН 3: ФИНАЛ ЭТАПА / ИГРЫ -->
+<!-- ЭКРАН 3: ФИНАЛ ЭТАПА -->
 <div id="result-screen" class="screen">
     <h2 style="margin-bottom: 15px;">Результаты этапа</h2>
     <div id="stage-winner" style="font-size: 1.4rem; font-weight: bold; color: var(--primary); margin-bottom: 20px;"></div>
-    <button class="btn" id="next-btn" onclick="nextStage()">Следующий этап</button>
+    <button class="btn" id="next-btn">Следующий этап</button>
 </div>
 
 <script>
@@ -420,19 +426,28 @@ let canGuess = false;
 
 const alphabet = "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ".split("");
 
-// Аудио синтез звуков (Web Audio API)
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+// Безопасный аудио-синтезатор
+let audioCtx = null;
 function playBeep(freq = 440, type = 'sine', duration = 0.1) {
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = type;
-    osc.frequency.value = freq;
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.start();
-    gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
-    osc.stop(audioCtx.currentTime + duration);
+    try {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.value = freq;
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
+        osc.stop(audioCtx.currentTime + duration);
+    } catch (e) {
+        // Звук игнорируется, если браузер блокирует его
+    }
 }
 
 // Отрисовка барабана
@@ -471,10 +486,15 @@ function drawWheel() {
 }
 drawWheel();
 
+// Привязка событий после загрузки страницы
+document.getElementById('start-btn').addEventListener('click', startStage);
+document.getElementById('spin-btn').addEventListener('click', spinWheel);
+document.getElementById('next-btn').addEventListener('click', nextStage);
+
 function startStage() {
-    players[0].name = document.getElementById('p1-name').value || "Игрок 1";
-    players[1].name = document.getElementById('p2-name').value || "Игрок 2";
-    players[2].name = document.getElementById('p3-name').value || "Игрок 3";
+    players[0].name = document.getElementById('p1-name').value.trim() || "Игрок 1";
+    players[1].name = document.getElementById('p2-name').value.trim() || "Игрок 2";
+    players[2].name = document.getElementById('p3-name').value.trim() || "Игрок 3";
 
     players.forEach(p => p.score = 0);
     activePlayerIndex = 0;
@@ -517,7 +537,6 @@ function loadQuestion() {
         board.appendChild(cell);
     }
 
-    // Клавиатура
     renderKeyboard();
 }
 
@@ -544,7 +563,6 @@ function spinWheel() {
     const targetSector = Math.floor(Math.random() * sectors.length);
     const arc = (2 * Math.PI) / sectors.length;
     
-    // Вычисляем угол останова так, чтобы стрелка указывала на targetSector
     const targetAngle = (2 * Math.PI * extraRounds) + (sectors.length - targetSector - 0.5) * arc;
 
     let start = null;
@@ -609,7 +627,6 @@ function guessLetter(letter, btnObj) {
         updateUI();
 
         if (revealedCount === currentWord.length) {
-            // Слово отгадано
             triggerWin();
         } else {
             document.getElementById('status-msg').innerText = "Правильно! Вращайте барабан еще раз.";
@@ -656,18 +673,4 @@ function showStageResult() {
         }
     });
 
-    document.getElementById('stage-winner').innerText = `Победитель этапа: ${winner} (${maxScore} очков)`;
-    
-    if (currentStage >= 2) {
-        document.getElementById('next-btn').innerText = "Завершить игру";
-    }
-}
-
-function nextStage() {
-    currentStage++;
-    if (currentStage < 3) {
-        document.getElementById('result-screen').classList.remove('active');
-        document.getElementById('setup-screen').classList.add('active');
-        document.getElementById('stage-title').innerText = stagesData[currentStage].title;
-    } else {
-        alert(
+    document.getElementById('stage-winner').innerText = `Победитель этапа: ${winner} (${maxScore} очков)`
